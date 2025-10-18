@@ -1,0 +1,14 @@
+node_modules
+# Folder tempat semua dependensi (library) Node.js disimpan setelah menjalankan "npm install".
+# Folder ini besar dan bisa diinstal ulang, jadi tidak perlu disertakan ke Git.
+
+# Keep environment variables out of version control
+.env
+# File ini berisi variabel lingkungan (environment variables), seperti password database,
+# secret key JWT, atau kredensial lainnya.
+# Disembunyikan agar data sensitif tidak bocor ke publik repository.
+
+ /src/generated/prisma
+# Folder hasil generate Prisma Client (biasanya otomatis dibuat oleh Prisma).
+# Tidak wajib dikirim ke Git karena bisa digenerate ulang dengan perintah:
+#   npx prisma generate

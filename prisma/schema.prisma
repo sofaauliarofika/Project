@@ -1,0 +1,158 @@
+generator client { //Membuka blok konfigurasi generator Prisma. Generator menentukan artefak yang akan dibuat Prisma (mis. client).
+  provider = "prisma-client-js" //Menentukan provider generator: prisma-client-js menghasilkan Prisma Client (JS/TS) yang dipakai aplikasi untuk mengakses database.
+} //Menutup blok generator.
+
+datasource db { //Membuka blok konfigurasi datasource yang mendefinisikan koneksi ke database.
+  provider = "mysql" //Menetapkan provider database: MySQL. Prisma akan menghasilkan query sesuai dialek MySQL.
+  url      = env("DATABASE_URL") //Mengambil string koneksi (URL database) dari environment variable DATABASE_URL. Praktik baik untuk keamanan/konfigurasi.
+} //Menutup blok datasource.
+
+enum OrderStatus { //Membuka definisi enum bernama OrderStatus — tipe terbatas yang bisa dipakai di model.
+  PENDING
+  PAID
+  SHIPPED
+  COMPLETED
+  CANCELED
+  //Nilai-nilai enum: status order yang valid di aplikasi (pending → paid → shipped → completed, atau canceled).
+} //Menutup enum OrderStatus.
+
+enum DiscountType { //Membuka enum DiscountType untuk tipe diskon.
+  PERCENTAGE
+  AMOUNT
+  //Dua pilihan: diskon berbentuk persentase atau nominal (amount).
+} //Menutup enum DiscountType.
+
+model User { //Memulai definisi model User — merepresentasikan tabel User di DB.
+  id        Int       @id @default(autoincrement()) //Kolom id bertipe Int, menjadi primary key (@id) dan nilainya auto-increment dibuat oleh DB.
+  username  String    @unique //username bertipe String dan harus unik di tabel (@unique).
+  email     String    @unique //email juga String dan unik.
+  password  String //password bertipe String (akan menyimpan hash, idealnya).
+  role      String    @default("user") // "user" | "admin"
+  //role bertipe String dengan default "user". Komentar menunjukkan kemungkinan nilai "user" atau "admin".
+  createdAt DateTime  @default(now()) //createdAt bertipe DateTime dengan default waktu sekarang saat record dibuat.
+
+  products  Product[] //Relasi one-to-many: satu User punya banyak Product (relasi terbalik di model Product).
+  orders    Order[] //Relasi one-to-many: user punya banyak Order.
+  ratings   Rating[] //Relasi one-to-many: user punya banyak Rating.
+
+  buyer     Buyer?    // <— profil pembeli (opsional), one-to-one
+  //Relasi one-to-one opsional ke model Buyer. Tanda ? berarti kolom relasi bisa null (user belum memiliki profil buyer). Komentar menjelaskan maksudnya.
+} //Menutup definisi model User.
+
+model Product { //Memulai model Product.
+  id          Int       @id @default(autoincrement()) //Primary key auto-increment id.
+  name        String //Nama produk, String.
+  price       Decimal   @db.Decimal(10,2) //price bertipe Decimal dengan presisi DB Decimal(10,2) — cocok untuk nilai uang (2 desimal).
+  description String? //description opsional (?) bertipe String.
+  createdAt   DateTime  @default(now()) //createdAt default waktu sekarang.
+  updatedAt   DateTime  @default(now()) @updatedAt //updatedAt otomatis di-set ke now() saat dibuat dan otomatis di-update setiap kali record di-update (@updatedAt).
+
+  userId      Int //Foreign key userId (pemilik/creator produk).
+  user        User      @relation(fields: [userId], references: [id]) //Mendefinisikan relasi ke model User menggunakan userId yang merefer ke User.id.
+
+  ratings     Rating[] //Relasi one-to-many: product punya banyak rating.
+  orderItems  OrderItem[] //Relasi one-to-many: product muncul di banyak OrderItem.
+
+  @@index([name]) //Menambahkan index pada kolom name untuk mempercepat pencarian/filter berdasarkan nama.
+} //Menutup model Product.
+
+model Voucher { //Mulai model Voucher untuk menyimpan kupon/diskon.
+  id             Int          @id @default(autoincrement()) //Primary key auto-increment.
+  code           String       @unique //code voucher bertipe String dan wajib unik.
+  discountType   DiscountType //discountType menggunakan enum DiscountType (PERCENTAGE atau AMOUNT).
+  discountValue  Decimal      @db.Decimal(10,2) //Nilai diskon sebagai Decimal(10,2).
+  minOrderValue  Decimal?     @db.Decimal(10,2) //Batas minimal order agar voucher berlaku; opsional (?) dan bertipe Decimal(10,2) jika ada.
+  active         Boolean      @default(true) //Flag active default true menunjukkan voucher aktif atau tidak.
+  startAt        DateTime?
+  endAt          DateTime? //Tanggal mulai dan berakhir voucher; keduanya opsional.
+  usageLimit     Int? //Batas total pemakaian voucher (opsional).
+  usedCount      Int          @default(0) //Counter berapa kali voucher sudah dipakai; default 0.
+
+  orders         Order[] //Relasi: voucher bisa terkait ke banyak order (order yang memakai voucher).
+
+  createdAt      DateTime     @default(now()) //Waktu pembuatan record.
+  updatedAt      DateTime     @default(now()) @updatedAt //Waktu update terakhir, otomatis di-update oleh Prisma.
+
+  @@index([active, startAt, endAt]) //Composite index pada kolom active, startAt, endAt — berguna untuk query yang mencari voucher aktif dalam rentang waktu.
+  @@index([code]) //Index pada code (meskipun code sudah @unique, index ini eksplisit; @unique biasanya sudah membuat index).
+} //Menutup model Voucher.
+
+model Order { //Mulai model Order.
+  id            Int          @id @default(autoincrement()) //Primary key auto-increment.
+  userId        Int //Foreign key ke User.
+  user          User         @relation(fields: [userId], references: [id]) //Relasi ke User menggunakan userId.
+
+  status        OrderStatus  @default(PENDING) //status memakai enum OrderStatus, default PENDING.
+  subtotal      Decimal      @db.Decimal(10,2) //Subtotal order (jumlah sebelum diskon) sebagai Decimal.
+  discount      Decimal      @db.Decimal(10,2) @default(0) //Jumlah diskon yang diterapkan (Decimal), default 0.
+  total         Decimal      @db.Decimal(10,2) //Total akhir setelah diskon.
+
+  voucherId     Int? //Foreign key ke Voucher, opsional (bila order memakai voucher).
+  voucher       Voucher?     @relation(fields: [voucherId], references: [id]) //Relasi ke model Voucher menggunakan voucherId.
+
+  items         OrderItem[] //Relasi one-to-many: order memiliki banyak OrderItem.
+
+  createdAt     DateTime     @default(now()) //Waktu pembuatan order.
+  updatedAt     DateTime     @default(now()) @updatedAt //Waktu update terakhir, otomatis.
+
+  @@index([userId, status]) //Composite index pada userId dan status untuk query mis. daftar order per user dengan status tertentu.
+  @@index([voucherId]) //Index pada voucherId untuk mempercepat lookup order yang memakai voucher.
+} //Menutup model Order.
+
+model OrderItem { //Mulai model OrderItem — baris item pada order.
+  id         Int       @id @default(autoincrement()) //Primary key auto-increment.
+  orderId    Int //Foreign key ke Order.
+  productId  Int //Foreign key ke Product.
+
+  quantity   Int       @default(1) //Kuantitas item, default 1.
+  unitPrice  Decimal   @db.Decimal(10,2) //Harga satuan saat order (snapshot) sebagai Decimal.
+  subtotal   Decimal   @db.Decimal(10,2) //Subtotal untuk item (unitPrice * quantity) sebagai Decimal.
+
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade) //Relasi ke Order. onDelete: Cascade artinya jika order dihapus, orderItems terkait juga akan dihapus otomatis.
+  product    Product   @relation(fields: [productId], references: [id]) //Relasi ke Product.
+
+  createdAt  DateTime  @default(now()) //Waktu pembuatan order item.
+
+  @@index([orderId]) //Index pada orderId.
+  @@index([productId]) //Index pada productId.
+} //Menutup model OrderItem.
+
+model Rating { //Mulai model Rating untuk menyimpan ulasan/rating produk.
+  id         Int       @id @default(autoincrement()) //Primary key auto-increment.
+  userId     Int //Foreign key ke User.
+  productId  Int //Foreign key ke Product.
+  value      Int //Nilai rating (mis. 1..5).
+  comment    String? //Komentar opsional.
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade) //Relasi ke User. onDelete: Cascade berarti jika user dihapus, rating terkait ikut dihapus.
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade) //Relasi ke Product dengan cascade delete.
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  //Timestamp pembuatan dan update otomatis.
+
+  @@unique([userId, productId]) //Menetapkan kombinasi (userId, productId) harus unik — user hanya boleh memberi satu rating per product.
+  @@index([productId]) //Index pada productId untuk performa query.
+  @@index([userId]) //Index pada userId untuk performa query.
+} //Menutup model Rating.
+
+/** NEW: Buyer profile (one-to-one dengan User) */
+model Buyer { //Mulai model Buyer.
+  id           Int      @id                       // sama dengan User.id
+  //id bertipe Int jadi primary key. Komentar menjelaskan bahwa id ini sama dengan User.id — berarti shared primary key untuk relasi one-to-one.
+  user         User     @relation(fields: [id], references: [id], onDelete: Cascade) 
+  //Relasi ke User menggunakan id sebagai foreign key yang merefer ke User.id. onDelete: Cascade berarti bila User dihapus, Buyer ikut terhapus.
+
+  fullName     String?
+  phone        String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  province     String?
+  postalCode   String?
+  country      String?  // opsional
+  //Field profil pembeli bersifat opsional (?), menyimpan nama lengkap, telepon, alamat, kota, provinsi, kode pos, negara.
+
+  createdAt    DateTime @default(now()) //Waktu pembuatan profil buyer.
+  updatedAt    DateTime @default(now()) @updatedAt //Waktu update terakhir, otomatis di-update.
+} //Menutup model Buyer.
